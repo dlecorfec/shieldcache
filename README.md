@@ -1,5 +1,7 @@
 # shieldcache
 
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/dlecorfec/shieldcache)](https://pkg.go.dev/github.com/dlecorfec/shieldcache)
+
 `shieldcache` is a Go in-memory LRU cache built around one operation: fetch a
 value by key, cache the result, and coordinate concurrent callers that need the
 same value.
@@ -120,6 +122,21 @@ item, err := cache.FetchContext(ctx, key, func(ctx context.Context) (interface{}
 
 Errors caused by the caller context being canceled or expired are not stored in
 the negative cache.
+
+For typed results, use the package-level generic helpers. They use the same
+cache coordination and stale/negative-cache behavior without requiring a type
+assertion:
+
+```go
+value, err := shieldcache.FetchContext[*Foo](ctx, cache, "foo:"+id,
+        func(ctx context.Context) (*Foo, bool, error) {
+                foo, err := client.ByID(ctx, id)
+                return foo, foo != nil, err
+        })
+```
+
+The generic helpers are package functions because Go methods cannot declare
+their own type parameters.
 
 ## Features
 
