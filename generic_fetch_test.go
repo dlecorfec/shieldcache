@@ -141,6 +141,45 @@ func TestFetchTypedInterfaceTypeMismatch(t *testing.T) {
 	}
 }
 
+func TestFetchTypedNilValue(t *testing.T) {
+	cache, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	if _, err := cache.Fetch("key", func() (interface{}, bool, error) {
+		return nil, true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := Fetch[int](cache, "key", func() (int, bool, error) {
+		t.Fatal("fetcher called for cached nil value")
+		return 0, false, nil
+	})
+	if err == nil {
+		t.Fatal("expected a type mismatch error")
+	}
+	if !strings.Contains(err.Error(), "<nil>") || !strings.Contains(err.Error(), "int") {
+		t.Fatalf("expected error to describe nil-to-int mismatch, got %v", err)
+	}
+	if value != 0 {
+		t.Fatalf("got %d, want zero value", value)
+	}
+
+	pointer, err := Fetch[*int](cache, "key", func() (*int, bool, error) {
+		t.Fatal("fetcher called for nil-capable cached value")
+		return nil, false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pointer != nil {
+		t.Fatalf("got %v, want nil", pointer)
+	}
+}
+
 func TestFetchContextTypedCancellation(t *testing.T) {
 	cache, err := New()
 	if err != nil {

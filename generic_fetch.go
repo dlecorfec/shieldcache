@@ -30,7 +30,16 @@ func FetchContext[T any](ctx context.Context, cache *Cache, key string, f func(c
 func typedValue[T any](item interface{}, err error) (T, error) {
 	var zero T
 	if item == nil {
-		return zero, err
+		if err != nil {
+			return zero, err
+		}
+		want := reflect.TypeFor[T]()
+		switch want.Kind() {
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			return zero, nil
+		default:
+			return zero, fmt.Errorf("shieldcache: cached value has type <nil>, want %v", want)
+		}
 	}
 
 	value, ok := item.(T)
