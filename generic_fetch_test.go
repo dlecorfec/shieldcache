@@ -3,6 +3,7 @@ package shieldcache
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -62,10 +63,49 @@ func TestFetchTypedError(t *testing.T) {
 
 	wantErr := errors.New("backend failure")
 	value, err := Fetch(cache, "key", func() (int, bool, error) {
-		return 0, false, wantErr
+		return 42, false, wantErr
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("got error %v, want %v", err, wantErr)
+	}
+	if value != 42 {
+		t.Fatalf("got %d, want fetched value", value)
+	}
+
+	value, err = Fetch(cache, "key", func() (int, bool, error) {
+		t.Fatal("fetcher called for negative cache hit")
+		return 0, false, nil
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("got cached error %v, want %v", err, wantErr)
+	}
+	if value != 42 {
+		t.Fatalf("got cached value %d, want 42", value)
+	}
+}
+
+func TestFetchTypedTypeMismatch(t *testing.T) {
+	cache, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	if _, err := Fetch(cache, "key", func() (string, bool, error) {
+		return "value", true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := Fetch(cache, "key", func() (int, bool, error) {
+		t.Fatal("fetcher called for cached value")
+		return 0, false, nil
+	})
+	if err == nil {
+		t.Fatal("expected a type mismatch error")
+	}
+	if !strings.Contains(err.Error(), "string") || !strings.Contains(err.Error(), "int") {
+		t.Fatalf("expected error to describe string-to-int mismatch, got %v", err)
 	}
 	if value != 0 {
 		t.Fatalf("got %d, want zero value", value)

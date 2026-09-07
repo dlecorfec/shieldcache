@@ -28,13 +28,16 @@ func FetchContext[T any](ctx context.Context, cache *Cache, key string, f func(c
 
 func typedValue[T any](item interface{}, err error) (T, error) {
 	var zero T
-	if err != nil || item == nil {
+	if item == nil {
 		return zero, err
 	}
 
 	value, ok := item.(T)
 	if !ok {
+		if err != nil {
+			return zero, err
+		}
 		return zero, fmt.Errorf("shieldcache: cached value has type %T, want %T", item, zero)
 	}
-	return value, nil
+	return value, err
 }

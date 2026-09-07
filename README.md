@@ -128,7 +128,7 @@ cache coordination and stale/negative-cache behavior without requiring a type
 assertion:
 
 ```go
-value, err := shieldcache.FetchContext[*Foo](cache, ctx, "foo:"+id,
+value, err := shieldcache.FetchContext[*Foo](ctx, cache, "foo:"+id,
         func(ctx context.Context) (*Foo, bool, error) {
                 foo, err := client.ByID(ctx, id)
                 return foo, foo != nil, err
