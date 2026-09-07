@@ -3,6 +3,7 @@ package shieldcache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -109,6 +110,34 @@ func TestFetchTypedTypeMismatch(t *testing.T) {
 	}
 	if value != 0 {
 		t.Fatalf("got %d, want zero value", value)
+	}
+}
+
+func TestFetchTypedInterfaceTypeMismatch(t *testing.T) {
+	cache, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	if _, err := Fetch(cache, "key", func() (string, bool, error) {
+		return "value", true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := Fetch[fmt.Stringer](cache, "key", func() (fmt.Stringer, bool, error) {
+		t.Fatal("fetcher called for cached value")
+		return nil, false, nil
+	})
+	if err == nil {
+		t.Fatal("expected a type mismatch error")
+	}
+	if !strings.Contains(err.Error(), "string") || !strings.Contains(err.Error(), "fmt.Stringer") {
+		t.Fatalf("expected error to describe string-to-fmt.Stringer mismatch, got %v", err)
+	}
+	if value != nil {
+		t.Fatalf("got %v, want nil", value)
 	}
 }
 

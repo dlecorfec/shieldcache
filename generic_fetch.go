@@ -3,6 +3,7 @@ package shieldcache
 import (
 	"context"
 	"fmt"
+	"reflect"
 )
 
 // Fetch retrieves a typed value from cache, fetching it when it is missing or stale.
@@ -37,7 +38,7 @@ func typedValue[T any](item interface{}, err error) (T, error) {
 		if err != nil {
 			return zero, err
 		}
-		return zero, fmt.Errorf("shieldcache: cached value has type %T, want %T", item, zero)
+		return zero, fmt.Errorf("shieldcache: cached value has type %T, want %v", item, reflect.TypeFor[T]())
 	}
 	return value, err
 }
