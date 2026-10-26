@@ -425,6 +425,117 @@ func TestFetchContextPassesContext(t *testing.T) {
 	}
 }
 
+type blockingGetStore struct {
+	lruStore
+	key          string
+	getCount     atomic.Int32
+	missObserved chan struct{}
+	resume       chan struct{}
+}
+
+func (s *blockingGetStore) Get(key string) *Item {
+	item := s.lruStore.Get(key)
+	if key == s.key && s.getCount.Add(1) == 3 {
+		close(s.missObserved)
+		<-s.resume
+	}
+	return item
+}
+
+func TestFetchRechecksCacheAfterInitialMiss(t *testing.T) {
+	testFetchRechecksCacheAfterInitialMiss(t, func(c *Cache, key string, f Fetcher) (interface{}, error) {
+		return c.Fetch(key, f)
+	})
+}
+
+func TestFetchContextRechecksCacheAfterInitialMiss(t *testing.T) {
+	testFetchRechecksCacheAfterInitialMiss(t, func(c *Cache, key string, f Fetcher) (interface{}, error) {
+		return c.FetchContext(context.Background(), key, func(context.Context) (interface{}, bool, error) {
+			return f()
+		})
+	})
+}
+
+func testFetchRechecksCacheAfterInitialMiss(t *testing.T, fetch func(*Cache, string, Fetcher) (interface{}, error)) {
+	t.Helper()
+	c, err := New()
+	if err != nil {
+		t.Fatalf("failed creating cache: %v", err)
+	}
+	defer c.Close()
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan struct{})
+	secondMissObserved := make(chan struct{})
+	resumeSecond := make(chan struct{})
+	secondDone := make(chan struct{})
+	var releaseFirstOnce sync.Once
+	var resumeSecondOnce sync.Once
+	defer releaseFirstOnce.Do(func() { close(releaseFirst) })
+	defer resumeSecondOnce.Do(func() { close(resumeSecond) })
+
+	c.posCache = &blockingGetStore{
+		lruStore:     c.posCache,
+		key:          "key",
+		missObserved: secondMissObserved,
+		resume:       resumeSecond,
+	}
+
+	go func() {
+		defer close(firstDone)
+		_, _ = fetch(c, "key", func() (interface{}, bool, error) {
+			close(firstStarted)
+			<-releaseFirst
+			return "value", true, nil
+		})
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first fetch to start")
+	}
+
+	var secondValue interface{}
+	var secondErr error
+	var secondFetchCalls atomic.Int32
+	go func() {
+		defer close(secondDone)
+		secondValue, secondErr = fetch(c, "key", func() (interface{}, bool, error) {
+			secondFetchCalls.Add(1)
+			return "duplicate", true, nil
+		})
+	}()
+	select {
+	case <-secondMissObserved:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for second cache miss")
+	}
+
+	releaseFirstOnce.Do(func() { close(releaseFirst) })
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first fetch to finish")
+	}
+	resumeSecondOnce.Do(func() { close(resumeSecond) })
+	select {
+	case <-secondDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for second fetch to finish")
+	}
+
+	if secondErr != nil {
+		t.Fatalf("second fetch failed: %v", secondErr)
+	}
+	if secondValue != "value" {
+		t.Fatalf("got %v, want cached value", secondValue)
+	}
+	if calls := secondFetchCalls.Load(); calls != 0 {
+		t.Fatalf("second fetcher called %d times, want 0", calls)
+	}
+}
+
 func TestFetchContextCanceledBeforeStart(t *testing.T) {
 	c, err := New()
 	if err != nil {

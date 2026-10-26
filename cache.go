@@ -378,6 +378,15 @@ func (c *Cache) Fetch(key string, f Fetcher) (interface{}, error) {
 	if !fetching {
 		c.fetching[key] = struct{}{}
 		c.fetchLock.Unlock()
+		item, cached, err, refresh = c.tryCache(key)
+		if refresh {
+			c.enqueueFetch(key, f, nil)
+		}
+		if cached {
+			c.endFetch(key)
+			c.fetchCond.Broadcast()
+			return item, err
+		}
 		if err := c.acquireFetch(context.Background()); err != nil {
 			c.endFetch(key)
 			c.fetchCond.Broadcast()
@@ -456,6 +465,16 @@ func (c *Cache) FetchContext(ctx context.Context, key string, f ContextFetcher) 
 		// nobody is fetching it yet, let's do it
 		c.fetching[key] = struct{}{}
 		c.fetchLock.Unlock()
+		// A previous fetch may have populated the cache after our initial miss.
+		item, cached, err, refresh = c.tryCache(key)
+		if refresh {
+			c.enqueueFetch(key, nil, f)
+		}
+		if cached {
+			c.endFetch(key)
+			c.fetchCond.Broadcast()
+			return item, err
+		}
 		if err := c.acquireFetch(ctx); err != nil {
 			c.endFetch(key)
 			c.fetchCond.Broadcast()
