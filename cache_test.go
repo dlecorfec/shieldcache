@@ -442,7 +442,22 @@ func (s *blockingGetStore) Get(key string) *Item {
 	return item
 }
 
+func TestFetchRechecksCacheAfterInitialMiss(t *testing.T) {
+	testFetchRechecksCacheAfterInitialMiss(t, func(c *Cache, key string, f Fetcher) (interface{}, error) {
+		return c.Fetch(key, f)
+	})
+}
+
 func TestFetchContextRechecksCacheAfterInitialMiss(t *testing.T) {
+	testFetchRechecksCacheAfterInitialMiss(t, func(c *Cache, key string, f Fetcher) (interface{}, error) {
+		return c.FetchContext(context.Background(), key, func(context.Context) (interface{}, bool, error) {
+			return f()
+		})
+	})
+}
+
+func testFetchRechecksCacheAfterInitialMiss(t *testing.T, fetch func(*Cache, string, Fetcher) (interface{}, error)) {
+	t.Helper()
 	c, err := New()
 	if err != nil {
 		t.Fatalf("failed creating cache: %v", err)
@@ -469,7 +484,7 @@ func TestFetchContextRechecksCacheAfterInitialMiss(t *testing.T) {
 
 	go func() {
 		defer close(firstDone)
-		_, _ = c.FetchContext(context.Background(), "key", func(context.Context) (interface{}, bool, error) {
+		_, _ = fetch(c, "key", func() (interface{}, bool, error) {
 			close(firstStarted)
 			<-releaseFirst
 			return "value", true, nil
@@ -486,7 +501,7 @@ func TestFetchContextRechecksCacheAfterInitialMiss(t *testing.T) {
 	var secondFetchCalls atomic.Int32
 	go func() {
 		defer close(secondDone)
-		secondValue, secondErr = c.FetchContext(context.Background(), "key", func(context.Context) (interface{}, bool, error) {
+		secondValue, secondErr = fetch(c, "key", func() (interface{}, bool, error) {
 			secondFetchCalls.Add(1)
 			return "duplicate", true, nil
 		})

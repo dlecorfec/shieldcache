@@ -378,6 +378,15 @@ func (c *Cache) Fetch(key string, f Fetcher) (interface{}, error) {
 	if !fetching {
 		c.fetching[key] = struct{}{}
 		c.fetchLock.Unlock()
+		item, cached, err, refresh = c.tryCache(key)
+		if refresh {
+			c.enqueueFetch(key, f, nil)
+		}
+		if cached {
+			c.endFetch(key)
+			c.fetchCond.Broadcast()
+			return item, err
+		}
 		if err := c.acquireFetch(context.Background()); err != nil {
 			c.endFetch(key)
 			c.fetchCond.Broadcast()
